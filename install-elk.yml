@@ -1,0 +1,145 @@
+---
+- hosts: all
+  gather_facts: false
+  vars:
+    ansible_python_interpreter: /usr/bin/python3
+
+  tasks:
+  
+  - name: Add Elasticsearch signing key
+    become: yes
+    apt_key:
+      url: https://artifacts.elastic.co/GPG-KEY-elasticsearch
+      state: present
+
+  - name: Add ElasticSearch Repo
+    become: yes
+    apt_repository:
+      repo: deb https://artifacts.elastic.co/packages/6.x/apt stable main
+      state: present
+      filename: elastic-6.x.list
+
+  - name: Enable Universe Repos
+    become: yes
+    command: add-apt-repository universe
+
+  # *********
+  # Upgrade all base packages before we get started
+  # *********
+
+  - name: Update and upgrade apt packages
+    become: true
+    apt:
+      update_cache: yes
+
+
+  # *********
+  # Install required packages
+  # *********
+
+  - name: Install Java
+    become: yes
+    apt: 
+      pkg: 
+        - default-jre
+        - openjdk-8-jdk
+        - openjdk-8-jre-headless
+
+  - name: correct java version selected
+    become: yes
+    alternatives:
+      name: java
+      path: /usr/lib/jvm/java-8-openjdk-amd64/jre/bin/java
+    
+  - name: Install Packages
+    become: yes
+    apt: 
+      pkg: 
+        - nginx
+        - elasticsearch
+        - kibana
+        - logstash
+      state: present
+
+
+  # *********
+  # Copy configuration files
+  # *********
+
+  - name: Elasticsearch config file
+    become: yes
+    copy:
+      src: files/elasticsearch-template.json
+      dest: /etc/logstash/elasticsearch-template.json
+      owner: root
+      group: root
+      mode: 0644
+
+  - name: Logstash Palo Alto Parser
+    become: yes
+    copy:
+      src: files/pan-os.conf
+      dest: /etc/logstash/conf.d/pan-os.conf
+      owner: root
+      group: root
+      mode: 0644
+
+  - name: NGINX Kibana Proxy Config
+    become: yes
+    copy:
+      src: files/nginx/kibana
+      dest: /etc/nginx/sites-available/kibana
+      owner: root
+      group: root
+      mode: 0644
+
+  - name: Delete default NGINX site
+    become: yes
+    file:
+      state: absent
+      path: /etc/nginx/sites-enabled/default
+      
+  - name: Create symbolic link 
+    become: yes
+    file:
+      src: /etc/nginx/sites-available/kibana
+      dest: /etc/nginx/sites-enabled/kibana
+      state: link
+
+  - name: Create self-signed certificate, if configured.
+    become: yes
+    command: openssl req -x509 -nodes -subj '/CN={{ inventory_hostname }}' -days 730 -newkey rsa:4096 -sha256 -keyout {{ ssl_cert.key }} -out {{ ssl_cert.cert }} creates={{ ssl_cert.cert }}
+
+
+  # *********
+  # Start Services
+  # *********
+
+  - name: Start logstash
+    become: yes
+    systemd:
+      state: restarted
+      enabled: yes
+      name: logstash
+
+  - name: Start elasticsearch
+    become: yes
+    systemd:
+      state: restarted
+      enabled: yes
+      name: elasticsearch
+
+  - name: Start Kibana
+    become: yes
+    systemd:
+      state: restarted
+      enabled: yes
+      name: kibana
+
+  - name: Start NGINX
+    become: yes
+    systemd:
+      state: restarted
+      enabled: yes
+      name: nginx
+
